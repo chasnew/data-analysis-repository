@@ -6,4 +6,4 @@ This repository collects my publicly available data analysis works on datasets f
 * [Kaggle Titanic competition](https://github.com/chasusc/data-analysis-repository/blob/master/Titanic/Kaggle_titanic.ipynb "Titanic jupyter notebook")
   * The notebook contains the entire pipeline of data analysis on the [titanic dataset](https://www.kaggle.com/c/titanic/data).
 * [Sentiment analysis](https://github.com/chasusc/data-analysis-repository/blob/master/Sentiment%20analysis/Twitter%20sentiment%20analysis.ipynb "Sentiment analysis notebook")
-  * I obtained sentiment analysis datasets from Kaggle and [SemEval2017](http://alt.qcri.org/semeval2017/task4/index.php?id=data-and-tools)
+  * I obtained sentiment analysis datasets from Kaggle and [SemEval2017](http://alt.qcri.org/semeval2017/task4/index.php?id=data-and-tools). It's in the initial stage of the project.
