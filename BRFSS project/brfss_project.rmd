@@ -1,0 +1,408 @@
+---
+title: "Exploring the BRFSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+```
+
+### Load data
+
+```{r load-data}
+load("brfss2013.RData")
+```
+
+
+
+* * *
+
+## Part 1: Data
+
+The Behavioral Risk Factor Surveillance System (BRFSS) is a collaborative project between all of the states in the United States (US) and participating US territories and the Centers for Disease Control and Prevention (CDC). The BRFSS conducts both landline and cellular telephone-based survey, which gives them a chance to access a broad population. The sampling technique is considered sufficiently random, but their subjects may not represent people who neither have access to landline nor cellphones. BRFSS collected the data from adults (age over 18) in 50 states in the US, the District of Columbia, Puerto Rico, and Guam. Therefore, the results of the study can be generalized to those populations. This study is observational. BRFSS didn't split subjects into a treatment group and a control group and pose an intervention. Therefore, this study cannot infer causality.
+
+* * *
+
+## Part 2: Research questions
+
+**Research quesion 1:**
+Is there an association between hours of sleep and the occurrence of poor mental health? In other words, I want to explore if short hours of sleep would be associated with more days of poor mental health. This could be helpful for public health guideline to promote healthy sleeping habit.
+
+**Research quesion 2:**
+How does the diagnosis of kidney disease affect the recent drinking behavior of the population? This insight would inform us how merely the diagnosis of kidney disease affects subjects' drinking behaviors and possibly promotes routine medical checkups.
+
+**Research quesion 3:**
+Is there a relationship between socioeconomic status and health care access? This insight will inform us if the society provides proper health care services to people, especially people with lower socioeconomic status. It could help promote a fairer and more accessible health care policy.
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+**Research quesion 1:**
+
+Is there an association between hours of sleep and the occurrence of poor mental health? In other words, I want to explore if short hours of sleep would be associated with more days of poor mental health. This could be helpful for public health guideline to promote healthy sleeping habit.
+
+```{r select the variables of interest}
+r1_data <- brfss2013 %>%
+  select(sleptim1, menthlth)
+
+r1_data <- r1_data %>%
+  filter(!is.na(sleptim1), !is.na(menthlth))
+
+r1_data[order(r1_data$sleptim1, decreasing = TRUE)[1:10],]
+```
+There's a record in the data showing 450 hours sleep time and 5000 days of poor mental health. We will consider this row as an outlier and take it out before proceeding the exploratory data analysis.
+```{r take out an outlier and calculate statistics}
+r1_data <- r1_data %>%
+  filter(sleptim1 <= 24, menthlth <= 30)
+
+r1_data %>%
+  summarise_all(c(avg = mean, med = median, iqr = IQR, sd = sd, max = max, min = min))
+```
+```{r check the distributions of our two variables}
+ggplot(data = r1_data, aes(x = sleptim1)) +
+  geom_histogram(binwidth = 1)
+
+ggplot(data = r1_data, aes(x = menthlth)) +
+  geom_histogram(binwidth = 1)
+```
+The distribution of mental health days is heavily right-skewed. Next, we will create a scatter plot to see if there's a correlation between hours of sleep and the number of poor mental health days.
+```{r}
+ggplot(data = r1_data, aes(x = sleptim1, y = menthlth)) +
+  geom_point()
+```
+From the scatter plot, we can't gain much information since most of the numbers are rounded. We will instead classify sleep hours into a few categories and use a boxplot to visualize the data.
+
+```{r categorizing sleeping length}
+r1_data <- r1_data %>%
+  mutate(sleep_period = cut(sleptim1, breaks = c(-Inf, 5, 9, Inf), labels = c("undersleep", "good-sleep", "oversleep")))
+
+r1_data %>%
+  group_by(sleep_period) %>%
+  summarise(count = n(), ment_mean = mean(menthlth), ment_med = median(menthlth),
+            ment_sd = sd(menthlth), ment_iqr = IQR(menthlth))
+```
+
+```{r boxplot of sleep length and the number of poor mental health days}
+ggplot(data = r1_data, aes(x = sleep_period, y = menthlth, fill = sleep_period)) +
+  geom_boxplot()
+```
+
+From the summary statistics and the box plot, the association between the sleeping length and the number of poor mental health days is not evident, which might be due to data skewness. The majority of the population has a normal length of sleep, which is 6-9 hours, and most of them has no or few poor mental health days. People who undersleep, sleep 5 hours or less a day, has more variation in the number of poor mental health days, which might indicate the different distribution, but the median of their poor mental health day is also 0. Lastly, I categorize people who sleep more than 9 hours a day as "oversleep." Oversleeping people have less variation in the number of poor mental health days compared to undersleeping population, but still have more variation than people who sleep normally.
+
+In order to gain more perceivable insights, I'll also discretize the number of poor mental days and categorize them into 3 categories that indicate no poor mental health day, short-term poor mental health, and long/chronic poor mental health.
+
+```{r categorizing mental issue}
+r1_data <- r1_data %>%
+  mutate(menthse = cut(menthlth, breaks = c(-Inf, 0, 7, Inf), labels = c("no mental issue", "temporary issue", "chronic issue")))
+
+menth_prop <- ddply(r1_data, .(sleep_period), plyr::summarise,
+                    prop=prop.table(table(menthse)),
+                    menthse=names(table(menthse)))
+menth_prop$prop <- as.numeric(menth_prop$prop)
+menth_prop$menthse <- factor(menth_prop$menthse, levels = c("no mental issue", "temporary issue", "chronic issue"))
+
+menth_prop
+ggplot(data = menth_prop, aes(x = menthse, y = prop, fill = sleep_period)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Seriousness of mental health") +
+  ylab("proportion")
+```
+From the proportion plot, people who have good sleep or sleep 6-9 hours a day have the highest proportion of no mental issue population (~71%) while around 61% of people who oversleep have no mental issue, and only 50% of people who undersleep have no mental health issues. Among the three groups, they have approximately the same proportion of people who have temporary mental health issues or had poor mental health for 1-7 days in the past month. Lastly, it's evident that people who have proper sleep have less proportion of people who have chronic mental issue, or have poor mental health more than a week, compared to the other groups. People who sleep less than 6 hours a day have the highest proportion (~25%) of people who have chronic mental issue.
+
+**Research quesion 2:**
+
+How does the diagnosis of kidney disease affect the recent drinking behavior of the population? This insight would inform us how merely the diagnosis of kidney disease affects subjects' drinking behaviors and possibly promotes routine medical checkups.
+
+```{r q2 data inspection}
+r2_data <- brfss2013 %>%
+  select(chckidny, alcday5, avedrnk2, drnk3ge5, maxdrnks) %>%
+  filter(!is.na(chckidny), !is.na(alcday5))
+
+head(r2_data)
+```
+For the variable alcday5, the first digit denotes days per week (1) or days per month (2). The remaining digits indicate the count of days. Value 0 indicates no drinks in the past 30 days. Therefore, I'll parse out the digits in alcday5 variable and construct a new feature and actually indicate the number days a person has alcohol drinks.
+
+```{r q2 feature processing}
+r2_data <- r2_data %>%
+  mutate(alcdaynum = ifelse(floor(alcday5/100) == 1, (alcday5 %% 100)*4, alcday5 %% 100),
+         chckdrnk = ifelse(alcday5 == 0, "didn't drink", "drank"))
+
+head(r2_data)
+```
+The density plot of the number of days the subjects having alcohol drink in the past 30 days shows that both populations are heavily right-skewed. However, the population of the people who have been told before that they have kidney disease is more heavily populated around 0 day.
+
+```{r drinker proportion plot}
+prop_table <- ddply(r2_data, .(chckidny), plyr::summarise,
+                    prop=prop.table(table(chckdrnk)),
+                    chckdrnk=names(table(chckdrnk)))
+prop_table$prop <- as.numeric(prop_table$prop)
+prop_table$chckdrnk <- factor(prop_table$chckdrnk)
+
+prop_table
+ggplot(data = prop_table, aes(x = chckdrnk, y = prop, fill = chckidny)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Whether or not a subject had alcoholic drinks in the past 30 days") +
+  ylab("proportion")
+```
+The proportion plot shows how the diagnosis of kidney disease affects the drinking behavior of the subjects. For people who have never been diagnosed with a kidney disease, they have almost the same proportion of people who had alcoholic drinks in the past 30 days and people who did not. On the other hand, there's a notably larger proportion of people who have been diagnosed with a kidney disease that didn't have alcoholic drinks in the past 30 days compared to the proportion of the ones who did. This is suggesting that the diagnosis or the recommendation of the doctor affects the drinking behavior of the population.
+
+Then I want to explore how the diagnosis might influence the drinking behavior of people who still had alcoholic drinks in the past 30 days. First, I'll visualize the actual number of days in the past 30 days that drinkers had alcoholic drinks. This value was already calculated and stored as the variable "alcdaynum."
+
+```{r visualize days of drinkers}
+drinkers <- r2_data %>%
+  select(chckidny, alcday5, alcdaynum, avedrnk2) %>%
+  filter(alcday5 != 0)
+
+drinkers %>%
+  group_by(chckidny) %>%
+  summarise(count = n(), alc_mean = mean(alcdaynum), alc_med = median(alcdaynum),
+            alc_sd = sd(alcdaynum), alc_iqr = IQR(alcdaynum),
+            drnk_max = max(alcdaynum), drnk_min = min(alcdaynum))
+
+ggplot(data = drinkers, aes(x = alcdaynum, fill=chckidny)) +
+  geom_density(binwidth = 1, alpha = 0.4)
+```
+From the density plot above, there's no clear difference in the number of drinking days between the group of subjects whom have been told that they had kidney disease and the other group of subjects. However, we can see that the distribution of drinking days for subjects diagnosed with kidney disease is smoother compared to the other distribution that has several bumps.
+
+Next, I'll also explore the variable "avedrnk2" that indicates average numbers of drink per day a subject had in the past 30 days. This variable will give us a sense of how much a subject actually consumes alcoholic drinks. First, I'll filter out the rows that have missing values in "avedrnk2" column and then create a new variable calculated by multiplying the number of days the subjects had alcoholic drinks with the average number of drinks per day.
+
+```{r visualize number of drinks}
+drinkers <- drinkers %>%
+  filter(!is.na(avedrnk2)) %>%
+  mutate(numdrnk = avedrnk2*alcdaynum)
+
+drinkers %>%
+  group_by(chckidny) %>%
+  summarise(count = n(), alc_mean = mean(numdrnk), alc_med = median(numdrnk),
+            alc_sd = sd(numdrnk), alc_iqr = IQR(numdrnk),
+            drnk_max = max(numdrnk), drnk_min = min(numdrnk))
+
+ggplot(data = drinkers, aes(x = chckidny, y=numdrnk, fill=chckidny)) +
+  geom_boxplot()
+```
+From the box plot above, it shows that the distribution of total number of drinks both groups are heavily right-skewed. Hence, we can't gain much insights from the plot. However, we can also see that subjects whom have never been told that they had kidney disease are more spread towards the higher number of drinks. I'll try labeling each range of numbers of drink.
+
+```{r drinking amount categorization}
+drinkers <- drinkers %>%
+  mutate(drnk_type = cut(numdrnk, breaks = c(-Inf, 7, 30, Inf), labels = c("light drinker", "regular drinker", "heavy drinker")))
+
+drnk_prop <- ddply(drinkers, .(chckidny), plyr::summarise,
+                    prop=prop.table(table(drnk_type)),
+                    drnk_type=names(table(drnk_type)))
+drnk_prop$prop <- as.numeric(drnk_prop$prop)
+drnk_prop$drnk_type <- factor(drnk_prop$drnk_type,
+                              levels = c("light drinker", "regular drinker", "heavy drinker"),
+                              ordered = TRUE)
+
+ggplot(data = drnk_prop, aes(x = drnk_type, y = prop, fill = chckidny)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Type of drinkers") +
+  ylab("proportion")
+```
+The bar plots shows that most subjects diagnosed with kidney disease (~50%) are light drinkers. Moreover, compared to the other group, people diagnosed with kidney disease have less proportion of regular drinkers and heavy drinkers.
+
+Finally, the analyses suggest that the diagnosis of kidney disease has association with the drinking behaviors of the subjects. The subjects once diagnosed with kidney disease drink less often and also drink in less amount when they do.
+
+**Research quesion 3:**
+
+Is there a relationship between socioeconomic status and health care access? This insight will inform us if the society provides proper health care services to people, especially people with lower socioeconomic status. It could help promote a fairer and more accessible health care policy.
+
+```{r extract columns related to question 3}
+r3_data <- brfss2013 %>%
+  select(educa, income2, employ1, hlthpln1, medcost, checkup1, medicare, delaymed, medscost) %>%
+  filter(!is.na(educa), !is.na(employ1), !is.na(income2))
+
+educa_old_levels <- levels(r3_data$educa)
+educa_new_levels <- c("No school", "Elementary", "High schooler", "High school grad", "College", "College grad")
+r3_data$educa <- mapvalues(r3_data$educa, from = educa_old_levels, to = educa_new_levels)
+
+str(r3_data)
+```
+First, let's check explore the characteristics of the socioeconomic variables including education, employment status, and income range, and their relationships among themselves.
+
+```{r distribution plots of socioeco variables}
+ggplot(data = r3_data, aes(x = educa)) +
+  geom_bar() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(data = r3_data, aes(x = employ1)) +
+  geom_bar() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(data = r3_data, aes(x = income2)) +
+  geom_bar() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The bar plots above show us the distribution of each socioeconomic variable, so we could take into account their skewness for further analysis.
+
+```{r distribution plots of relationships between socioeco variables}
+edu_emp_prop <- ddply(r3_data, .(educa), plyr::summarise,
+                    prop=prop.table(table(employ1)),
+                    employ1=names(table(employ1)))
+edu_emp_prop$prop <- as.numeric(edu_emp_prop$prop)
+edu_emp_prop$employ1 <- factor(edu_emp_prop$employ1, levels = unique(edu_emp_prop$employ1))
+
+ggplot(data = edu_emp_prop, aes(x = employ1, y = prop, fill = educa)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Type of employments") +
+  ylab("proportion") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+edu_incom_prop <- ddply(r3_data, .(educa), plyr::summarise,
+                    prop=prop.table(table(income2)),
+                    income2=names(table(income2)))
+edu_incom_prop$prop <- as.numeric(edu_incom_prop$prop)
+edu_incom_prop$income2 <- factor(edu_incom_prop$income2, levels = unique(edu_incom_prop$income2))
+
+ggplot(data = edu_incom_prop, aes(x = income2, y = prop, fill = educa)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Income range") +
+  ylab("proportion") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+incom_emp_prop <- ddply(r3_data, .(employ1), plyr::summarise,
+                    prop=prop.table(table(income2)),
+                    income2=names(table(income2)))
+incom_emp_prop$prop <- as.numeric(incom_emp_prop$prop)
+incom_emp_prop$income2 <- factor(incom_emp_prop$income2, levels = unique(incom_emp_prop$income2))
+
+ggplot(data = incom_emp_prop, aes(x = income2, y = prop, fill = employ1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Income range") +
+  ylab("proportion") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The plots above show how each socioeconomic variable correlates with one another. The first bar plot shows the proportion of people with different type of employment given their education levels. We can see the overall affinity of this plot with the original distribution plot of employment type. This plot, however, also shows that the education variable also correlates with certain types of employment. For example, people who graduate from college are more likely to be employed for wages (have full-time jobs) compared to other subject groups. There also is very little small proportion of this population that are unable to work or become a homemaker compared to other groups.
+
+The second plot offers a very interesting insight. There's a visible correlation between the education level and income range. The proportion of people graduate from college increase as the plot shifts to the higher range of salary whereas the plot shows the opposite tendency for people whose education is lower than high school graduate. The plot suggests that high education levels would offer an opportunity to have a job with high income range.
+
+The last plot shows a similar characteristic as the second plot. As we can see, people employed for wages and self-employed are more likely to earn higher salary compared to other employment statuses. It's possible that these people are college graduates who have high income in the previous plot.
+
+Before conducting further analyses between socioeconomic backgrounds and access to health care services, let's check the distribution of responses to health care access questions.
+```{r distribution plots of health care variables}
+r3_data <- r3_data %>%
+  filter(!is.na(hlthpln1), !is.na(checkup1), !is.na(medcost))
+
+ggplot(data = r3_data, aes(x = hlthpln1)) +
+  geom_bar() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(data = r3_data, aes(x = medcost)) +
+  geom_bar() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(data = r3_data, aes(x = checkup1)) +
+  geom_bar() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+We can see that the majority of the population has access the health care services. However, we want to investigate into the problem when people don't get the services. First, I'll visualize if having health care coverage reduces medical cost problem or promote routine checkups.
+
+```{r health care access variables relationships}
+hlthcov_medc_prop <- ddply(r3_data, .(hlthpln1), plyr::summarise,
+                    prop=prop.table(table(medcost)),
+                    medcost=names(table(medcost)))
+hlthcov_medc_prop$prop <- as.numeric(hlthcov_medc_prop$prop)
+hlthcov_medc_prop$medcost <- factor(hlthcov_medc_prop$medcost, levels = unique(hlthcov_medc_prop$medcost))
+
+ggplot(data = hlthcov_medc_prop, aes(x = medcost, y = prop, fill = hlthpln1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Could not see Dr. due to cost") +
+  ylab("proportion")
+
+hlthcov_chck_prop <- ddply(r3_data, .(hlthpln1), plyr::summarise,
+                    prop=prop.table(table(checkup1)),
+                    checkup1=names(table(checkup1)))
+hlthcov_chck_prop$prop <- as.numeric(hlthcov_chck_prop$prop)
+hlthcov_chck_prop$checkup1 <- factor(hlthcov_chck_prop$checkup1, levels = unique(hlthcov_chck_prop$checkup1))
+
+ggplot(data = hlthcov_chck_prop, aes(x = checkup1, y = prop, fill = hlthpln1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Latest medical checkup") +
+  ylab("proportion")
+```
+
+From the two plots above, more than 75% of people who have health care coverage have no problems with the cost and went to have a routine checkup within the past year. It's quite evident that having health care coverage helps reduce the cost problem and promote more frequent routine checkups.
+
+```{r health care coverage variable}
+hlthcov_edu_prop <- ddply(r3_data, .(educa), plyr::summarise,
+                    prop=prop.table(table(hlthpln1)),
+                    hlthpln1=names(table(hlthpln1)))
+hlthcov_edu_prop$prop <- as.numeric(hlthcov_edu_prop$prop)
+hlthcov_edu_prop$hlthpln1 <- factor(hlthcov_edu_prop$hlthpln1, levels = unique(hlthcov_edu_prop$hlthpln1))
+
+ggplot(data = hlthcov_edu_prop, aes(x = hlthpln1, y = prop, fill = educa)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Whether or not have health care coverage") +
+  ylab("proportion")
+
+hlthcov_emp_prop <- ddply(r3_data, .(employ1), plyr::summarise,
+                    prop=prop.table(table(hlthpln1)),
+                    hlthpln1=names(table(hlthpln1)))
+hlthcov_emp_prop$prop <- as.numeric(hlthcov_emp_prop$prop)
+hlthcov_emp_prop$hlthpln1 <- factor(hlthcov_emp_prop$hlthpln1, levels = unique(hlthcov_emp_prop$hlthpln1))
+
+ggplot(data = hlthcov_emp_prop, aes(x = hlthpln1, y = prop, fill = employ1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Whether or not have health care coverage") +
+  ylab("proportion")
+
+hlthcov_incom_prop <- ddply(r3_data, .(income2), plyr::summarise,
+                    prop=prop.table(table(hlthpln1)),
+                    hlthpln1=names(table(hlthpln1)))
+hlthcov_incom_prop$prop <- as.numeric(hlthcov_incom_prop$prop)
+hlthcov_incom_prop$hlthpln1 <- factor(hlthcov_incom_prop$hlthpln1, levels = unique(hlthcov_incom_prop$hlthpln1))
+
+ggplot(data = hlthcov_incom_prop, aes(x = hlthpln1, y = prop, fill = income2)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Whether or not have health care coverage") +
+  ylab("proportion")
+```
+
+The three plots show association between socioeconomic variables with the "hlthpln1" variable, which indicates whether an individual has a health care coverage (of any kind including HMOs, Medicare, or Indian health service). It's expected that the three plots share certain characteristics since we found out in prior analysis that the three socioeconomic variables are correlated. As it turns out, people with better socioeconomic backgrouds (higher education degrees and higher salary) have bigger proportion of population that has health care coverage. And most institutions, including schools and govermental offices, and companies provide health care coverage for their employees and students. As a result, most individuals in those groups have health care coverage compared to people who are out of work.
+
+```{r medcost variable relationships}
+no_cover_pop <- r3_data %>%
+  filter(hlthpln1 == "No")
+
+nocovmedc_edu_prop <- ddply(no_cover_pop, .(educa), plyr::summarise,
+                    prop=prop.table(table(medcost)),
+                    medcost=names(table(medcost)))
+nocovmedc_edu_prop$prop <- as.numeric(nocovmedc_edu_prop$prop)
+nocovmedc_edu_prop$medcost <- factor(nocovmedc_edu_prop$medcost, levels = unique(nocovmedc_edu_prop$medcost))
+
+ggplot(data = nocovmedc_edu_prop, aes(x = medcost, y = prop, fill = educa)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Could not see Dr. due to cost") +
+  ylab("proportion")
+
+nocovmedc_emp_prop <- ddply(no_cover_pop, .(employ1), plyr::summarise,
+                    prop=prop.table(table(medcost)),
+                    medcost=names(table(medcost)))
+nocovmedc_emp_prop$prop <- as.numeric(nocovmedc_emp_prop$prop)
+nocovmedc_emp_prop$medcost <- factor(nocovmedc_emp_prop$medcost, levels = unique(nocovmedc_emp_prop$medcost))
+
+ggplot(data = nocovmedc_emp_prop, aes(x = medcost, y = prop, fill = employ1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Could not see Dr. due to cost") +
+  ylab("proportion")
+
+nocovmedc_incom_prop <- ddply(no_cover_pop, .(income2), plyr::summarise,
+                    prop=prop.table(table(medcost)),
+                    medcost=names(table(medcost)))
+nocovmedc_incom_prop$prop <- as.numeric(nocovmedc_incom_prop$prop)
+nocovmedc_incom_prop$medcost <- factor(nocovmedc_incom_prop$medcost, levels = unique(nocovmedc_incom_prop$medcost))
+
+ggplot(data = nocovmedc_incom_prop, aes(x = medcost, y = prop, fill = income2)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  xlab("Could not see Dr. due to cost") +
+  ylab("proportion")
+```
+
+The above three plots show the relationships between socioeconomic attributes and the attribute "medcost" that indicate inability to see doctors due to cost issue. The first bar plot visualizing relationship between education background and the "medcost" variable shows no clear association between these two variables. The second plot, however, shows that many (more than 50%) of people who are unable to work or out of work could not see doctors due to cost. Lastly, as can be expected, the third plot illustrates evident negative correlation between the proportion of people who could not see doctors due to cost and income range. As the income range gets higher, the proportion of people who could not see doctors due to cost shirks.
+
+From all the visualizations and analyses, it suggests that there's an unequal distribution of health care service regarding different social and economic classes. People with lower education and income are less likely to have medical coverage. As a result, they have less access to health care services.
